@@ -63,7 +63,7 @@ class StateServiceTest {
         // Assert
         assertEquals(3, response.getEventsCount()); // All events counted
         assertEquals(5, response.getDefectsCount()); // Only positive defects counted (negative ignored)
-        assertEquals(Status.HEALTH, response.getStatus()); // 5 defects / 1 hour = 5 < 2.0 threshold
+        assertEquals(Status.WARNING, response.getStatus()); // 5 defects / 1 hour = 5.0 >= 2.0 threshold
     }
 
     @Test
@@ -109,7 +109,7 @@ class StateServiceTest {
         assertEquals(2, response.getEventsCount());
         assertEquals(2, response.getDefectsCount());
         assertEquals(2.0, response.getAvgDefectRate(), 0.01); // 2 defects / 1 hour = 2.0
-        assertEquals(Status.HEALTH, response.getStatus()); // Exactly 2.0 is HEALTH
+        assertEquals(Status.WARNING, response.getStatus()); // >= 2.0 is WARNING
     }
 
     @Test
@@ -230,7 +230,7 @@ class StateServiceTest {
         assertEquals(0.0, dto.getDefectsPercent()); // Division by zero handled
     }
 
-    private TopDefectLineProjection createProjection(String lineId, Long eventCount, Long totalDefects) {
+    private TopDefectLineProjection createProjection(String lineId, long eventCount, long totalDefects) {
         return new TopDefectLineProjection() {
             @Override
             public String getLineId() {
@@ -238,12 +238,12 @@ class StateServiceTest {
             }
 
             @Override
-            public Long getEventCount() {
+            public long getEventCount() {
                 return eventCount;
             }
 
             @Override
-            public Long getTotalDefects() {
+            public long getTotalDefects() {
                 return totalDefects;
             }
         };

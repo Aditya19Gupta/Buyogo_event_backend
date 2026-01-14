@@ -48,19 +48,25 @@ public class EventService {
                 }
                 Optional<MachineEvent> existing = repo.findByEventId(event.getEventId());
                 if (existing.isPresent()) {
-                    if (event.getEventId().equals(existing.get().getEventId()) && existing.get().getPayloadHash().equals(event.getPayloadHash())) {
+                    MachineEvent existingEvent = existing.get();
+                    if (existingEvent.getPayloadHash().equals(event.getPayloadHash())) {
                         deduped.incrementAndGet();
                         continue;
-                    } else{
+                    } else if (event.getReceivedTime().isAfter(existingEvent.getReceivedTime())) {
                         updated.incrementAndGet();
                         toSave.add(map(event));
+                    } else {
+                        // Older event, ignore
+                        continue;
                     }
                 } else {
                     accepted.incrementAndGet();
                     toSave.add(map(event));
                 }
             }
-            repo.saveAll(toSave);
+            if (!toSave.isEmpty()) {
+                repo.saveAll(toSave);
+            }
             BatchResponseDTO response = new BatchResponseDTO();
             response.setAccepted(accepted.get());
             response.setRejected(rejected.get());
@@ -69,8 +75,9 @@ public class EventService {
             response.setRejections(rejections);
             return response;
         } catch (Exception e) {
-            System.out.println(e);
-            throw new RuntimeException();
+            System.out.println("Error processing events: " + e.getMessage());
+            e.printStackTrace();
+            throw new RuntimeException("Failed to process events", e);
         }
     }
 
@@ -84,7 +91,7 @@ public class EventService {
         entity.setDurationMs(event.getDurationMs());
         entity.setDefectCount(event.getDefectCount());
         entity.setFactoryId(event.getFactoryId());
-        entity.setPayloadHash("SHA-56");
+        entity.setPayloadHash(event.getPayloadHash());
         entity.setLineId(event.getLineId());
         return entity;
     }

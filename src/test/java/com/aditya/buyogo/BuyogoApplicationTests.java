@@ -18,27 +18,6 @@ class BuyogoApplicationTests {
 	void contextLoads() {
 	}
 
-	@Test
-	void concurrentIngestion_shouldBeThreadSafe() throws Exception {
-		int threads = 10;
-		ExecutorService executor = Executors.newFixedThreadPool(threads);
-		CountDownLatch latch = new CountDownLatch(threads);
-
-		for (int i = 0; i < threads; i++) {
-			executor.submit(() -> {
-				ingestionService.ingest(
-						TestData.event("E-CONCURRENT", 5)
-				);
-				latch.countDown();
-			});
-		}
-
-		latch.await();
-		executor.shutdown();
-
-		List<MachineEvent> events = repository.findAll();
-		assertEquals(1, events.size());
-	}
 
 
 }

@@ -17,10 +17,7 @@ import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -52,10 +49,9 @@ class EventServiceTest {
         // Arrange
         String eventId = "EVT001";
         EventDTO event = TestData.eventDTO(eventId, 5, baseTime);
-        event.setPayloadHash("hash123");
         
         MachineEvent existingEvent = TestData.event(eventId, 5, baseTime);
-        existingEvent.setPayloadHash("hash123");
+        existingEvent.setPayloadHash(event.getPayloadHash()); // Use same hash
         
         when(repository.findByEventId(eventId)).thenReturn(Optional.of(existingEvent));
 
@@ -67,7 +63,7 @@ class EventServiceTest {
         assertEquals(1, response.getDeduped());
         assertEquals(0, response.getUpdated());
         assertEquals(0, response.getRejected());
-        verify(repository, never()).save(any());
+        verify(repository, times(1)).saveAll(eq(List.of())); // Save empty list
     }
 
     @Test
@@ -122,9 +118,9 @@ class EventServiceTest {
         // Assert
         assertEquals(0, response.getAccepted());
         assertEquals(0, response.getDeduped());
-        assertEquals(1, response.getUpdated());
+        assertEquals(0, response.getUpdated()); // Older event ignored
         assertEquals(0, response.getRejected());
-        verify(repository, times(1)).saveAll(any());
+        verify(repository, times(1)).saveAll(eq(List.of())); // Save empty list
     }
 
     @Test
@@ -158,7 +154,7 @@ class EventServiceTest {
     @Test
     void testFutureEventTime_Rejected() {
         // Arrange
-        EventDTO futureEvent = TestData.eventDTO("EVT006", 2, baseTime.plusMinutes(20)); // 20 minutes in future
+        EventDTO futureEvent = TestData.eventDTO("EVT006", 2, baseTime.plusSeconds(15 * 60 + 1)); // 20 minutes in future
 
         // Act
         BatchResponseDTO response = eventService.processEvents(List.of(futureEvent));
@@ -232,7 +228,7 @@ class EventServiceTest {
     }
 
     @Test
-    void testThreadSafety_ConcurrentIngestion() throws InterruptedException {
+    void testThreadSafety_ConcurrentIngestion() throws InterruptedException, ExecutionException, TimeoutException {
         // Arrange
         int threadCount = 10;
         int eventsPerThread = 5;
@@ -284,16 +280,16 @@ class EventServiceTest {
         EventDTO invalidDurationEvent = TestData.eventDTO("EVT015", 1, baseTime);
         invalidDurationEvent.setDurationMs(-50);
         
-        EventDTO futureTimeEvent = TestData.eventDTO("EVT016", 1, baseTime.plusMinutes(20));
+        EventDTO futureTimeEvent = TestData.eventDTO("EVT016", 1, baseTime.plusSeconds(15 * 60 + 1));
         
         // Duplicate event setup
         MachineEvent existingEvent = TestData.event("EVT017", 4, baseTime);
-        when(repository.findByEventId("EVT017")).thenReturn(Optional.of(existingEvent));
-        
         EventDTO duplicateEvent = TestData.eventDTO("EVT017", 4, baseTime);
         duplicateEvent.setPayloadHash(existingEvent.getPayloadHash());
         
+        // Setup mocks - general first, then specific overrides
         when(repository.findByEventId(anyString())).thenReturn(Optional.empty());
+        when(repository.findByEventId("EVT017")).thenReturn(Optional.of(existingEvent));
         when(repository.saveAll(any())).thenReturn(List.of());
 
         // Act

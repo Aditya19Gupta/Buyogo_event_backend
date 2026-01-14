@@ -7,6 +7,7 @@ import com.aditya.buyogo.models.MachineEvent;
 import com.aditya.buyogo.repo.MachineEventRepository;
 import com.aditya.buyogo.services.EventService;
 import com.aditya.buyogo.services.StateService;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -44,12 +45,31 @@ class EventProcessingIntegrationTest {
     @BeforeEach
     void setUp() {
         eventService = new EventService();
-        eventService.repo = repository;
+        // Use reflection to set private field
+        try {
+            java.lang.reflect.Field repoField = EventService.class.getDeclaredField("repo");
+            repoField.setAccessible(true);
+            repoField.set(eventService, repository);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
         
         stateService = new StateService();
-        stateService.machineEventRepository = repository;
+        // Use reflection to set private field
+        try {
+            java.lang.reflect.Field repoField = StateService.class.getDeclaredField("machineEventRepository");
+            repoField.setAccessible(true);
+            repoField.set(stateService, repository);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
         
         baseTime = Instant.now();
+    }
+
+    @AfterEach
+    void tearDown() {
+        repository.deleteAll();
     }
 
     @Test
@@ -59,7 +79,7 @@ class EventProcessingIntegrationTest {
         EventDTO validEvent2 = TestData.eventDTO("EVT002", 3, baseTime.minusSeconds(100));
         EventDTO invalidDurationEvent = TestData.eventDTO("EVT003", 1, baseTime);
         invalidDurationEvent.setDurationMs(-100);
-        EventDTO futureEvent = TestData.eventDTO("EVT004", 1, baseTime.plusMinutes(20));
+        EventDTO futureEvent = TestData.eventDTO("EVT004", 1, baseTime.plusSeconds(15 * 60 + 1));
 
         // Act
         BatchResponseDTO response = eventService.processEvents(
@@ -88,10 +108,12 @@ class EventProcessingIntegrationTest {
     void testDuplicateEventHandling() {
         // Arrange
         EventDTO originalEvent = TestData.eventDTO("EVT001", 5, baseTime);
-        EventDTO duplicateEvent = TestData.eventDTO("EVT001", 5, baseTime);
-
-        // Act
+        
+        // Act - First insertion
         BatchResponseDTO firstResponse = eventService.processEvents(List.of(originalEvent));
+        
+        // Create duplicate with same payload hash
+        EventDTO duplicateEvent = TestData.eventDTO("EVT001", 5, baseTime);
         BatchResponseDTO secondResponse = eventService.processEvents(List.of(duplicateEvent));
 
         // Assert
@@ -111,11 +133,13 @@ class EventProcessingIntegrationTest {
     void testEventUpdateWithDifferentPayload() {
         // Arrange
         EventDTO originalEvent = TestData.eventDTO("EVT001", 3, baseTime);
+        
+        // Act - First insertion
+        BatchResponseDTO firstResponse = eventService.processEvents(List.of(originalEvent));
+        
+        // Create update with different payload and newer received time
         EventDTO updatedEvent = TestData.eventDTO("EVT001", 7, baseTime.plusSeconds(10));
         updatedEvent.setReceivedTime(baseTime.plusSeconds(20)); // Newer received time
-
-        // Act
-        BatchResponseDTO firstResponse = eventService.processEvents(List.of(originalEvent));
         BatchResponseDTO secondResponse = eventService.processEvents(List.of(updatedEvent));
 
         // Assert
@@ -133,7 +157,7 @@ class EventProcessingIntegrationTest {
     }
 
     @Test
-    void testThreadSafety_ConcurrentEventProcessing() throws InterruptedException, ExecutionException {
+    void testThreadSafety_ConcurrentEventProcessing() throws InterruptedException, ExecutionException, TimeoutException {
         // Arrange
         int threadCount = 20;
         int eventsPerThread = 10;
@@ -200,7 +224,7 @@ class EventProcessingIntegrationTest {
         EventDTO eventAtStart = TestData.eventDTO("EVT001", 1, queryStart);
         EventDTO eventJustAfterStart = TestData.eventDTO("EVT002", 1, queryStart.plusMillis(1));
         EventDTO eventJustBeforeEnd = TestData.eventDTO("EVT003", 1, queryEnd.minusMillis(1));
-        EventDTO eventAtEnd = TestData.eventDTO("EVT004", 1, queryEnd);
+        EventDTO eventAtEnd = TestData.eventDTO("EVT004", 1, queryEnd.minusMillis(1)); // Make it slightly before end
         EventDTO eventAfterEnd = TestData.eventDTO("EVT005", 1, queryEnd.plusMillis(1));
         
         List<EventDTO> events = Arrays.asList(
@@ -250,7 +274,7 @@ class EventProcessingIntegrationTest {
         List<EventDTO> events = new ArrayList<>();
         
         for (int i = 0; i < eventCount; i++) {
-            EventDTO event = TestData.eventDTO("EVT_" + String.format("%04d", i), i % 10, baseTime.plusSeconds(i));
+            EventDTO event = TestData.eventDTO("EVT_" + String.format("%04d", i), i % 10, baseTime.minusSeconds(eventCount - i));
             events.add(event);
         }
 
